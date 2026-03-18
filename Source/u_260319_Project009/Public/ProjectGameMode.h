@@ -29,6 +29,7 @@ public:
 	
 	void ChangeNotify(const FString& InputStr);
 	void ChangeNotifyMore(const FString& InputStr);
+	void ChangeNotifyTime(const FString& InputStr);
 	
 	
 protected:
@@ -39,12 +40,20 @@ protected:
 
 	int32 AnswerGet;
 	int32 MaxTryGet;
+	int32 TurnTimeGet;
 	bool bIsWaitingForRestart = false;
 	
+	FTimerHandle TurnTimerHandle;
+	int32 RemainingTurnTime;
+
 	void UpdateAllPlayerStatuses();
 	
 	void AdvanceTurn();
 	void UpdateTurnUI();
 	
 	void UpdateRestartUI();
+	
+	void StartTurnTimer();
+	void OnTurnTimeExpired();
+	void UpdateTimerUI();
 };

@@ -15,6 +15,7 @@ void AProjectGameMode::BeginPlay()
 	{
 		AnswerGet = PGS->AnswerLength;
 		MaxTryGet = PGS->MaxTryCount;
+		TurnTimeGet = PGS->TurnTime;
 	}
 	
 	AnswerStr = GenerateAnswer();
@@ -130,6 +131,8 @@ void AProjectGameMode::ChatMessageStr(AProjectPlayerController* PLCont, const FS
 
 	if (CurrentPS->CurrentStatus == EPlayerStatus::YourTurn && PGS->IsCorrect(ActualContent) == ECheckType::Normal)
 	{
+		GetWorldTimerManager().ClearTimer(TurnTimerHandle);
+		
 		FString ResultStr = CorResult(AnswerStr, ActualContent);
 		TryCountInc(PLCont);
         
@@ -203,6 +206,7 @@ void AProjectGameMode::ResetGame()
 
 	ChangeNotifyMore(TEXT(""));
 	UpdateAllPlayerStatuses();
+	StartTurnTimer();
 }
 
 void AProjectGameMode::ResultGame(AProjectPlayerController* PLCont, int StrCount)
@@ -227,6 +231,7 @@ void AProjectGameMode::ResultGame(AProjectPlayerController* PLCont, int StrCount
 		bIsWaitingForRestart = true;
 		ReadyPlayers.Empty();
 		ChangeNotify(GameOverMsg);
+		ChangeNotifyTime(TEXT(""));
         
 		UpdateRestartUI(); 
 	}
@@ -245,6 +250,14 @@ void AProjectGameMode::ChangeNotifyMore(const FString& InputStr)
 	for (const auto& PLConts : AllPlayers)
 	{
 		PLConts->NotifyTxtMore = FText::FromString(InputStr);
+	}
+}
+
+void AProjectGameMode::ChangeNotifyTime(const FString& InputStr)
+{
+	for (const auto& PLConts : AllPlayers)
+	{
+		PLConts->NotifyTime = FText::FromString(InputStr);
 	}
 }
 
@@ -301,6 +314,7 @@ void AProjectGameMode::AdvanceTurn()
 	else
 	{
 		UpdateAllPlayerStatuses();
+		StartTurnTimer();
 	}
 }
 
@@ -323,4 +337,47 @@ void AProjectGameMode::UpdateRestartUI()
 {
 	FString Status = FString::Printf(TEXT("Type 'y' to restart! (%d/%d)"), ReadyPlayers.Num(), AllPlayers.Num());
 	ChangeNotifyMore(Status);
+}
+
+void AProjectGameMode::StartTurnTimer()
+{
+	RemainingTurnTime = TurnTimeGet; 
+	UpdateTimerUI();
+
+	GetWorldTimerManager().SetTimer(TurnTimerHandle, this, &AProjectGameMode::UpdateTimerUI, 1.0f, true);
+}
+
+void AProjectGameMode::UpdateTimerUI()
+{
+	if (RemainingTurnTime <= 0)
+	{
+		OnTurnTimeExpired();
+		return;
+	}
+
+	FString TimeStr = FString::Printf(TEXT("Time Left: %ds"), RemainingTurnTime);
+	for (auto& PC : AllPlayers)
+	{
+		if (IsValid(PC)) PC->NotifyTime = FText::FromString(TimeStr);
+	}
+
+	RemainingTurnTime--;
+}
+
+void AProjectGameMode::OnTurnTimeExpired()
+{
+	GetWorldTimerManager().ClearTimer(TurnTimerHandle);
+
+	AProjectGameState* PGS = GetGameState<AProjectGameState>();
+	if (PGS && AllPlayers.IsValidIndex(PGS->CurrentTurnIndex))
+	{
+		AProjectPlayerController* CurrentPC = AllPlayers[PGS->CurrentTurnIndex];
+		if (IsValid(CurrentPC))
+		{
+			TryCountInc(CurrentPC);
+			CurrentPC->ClientRPCPrintChatMessage(TEXT("Turn timed out! Try count increased."), FColor::Red);
+		}
+	}
+
+	AdvanceTurn();
 }

@@ -32,6 +32,8 @@ public:
 	int32 AnswerLength = 3;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	int32 MaxTryCount = 3;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 TurnTime = 30;
 	
 	FString GetCurrentPlayerName();
 };

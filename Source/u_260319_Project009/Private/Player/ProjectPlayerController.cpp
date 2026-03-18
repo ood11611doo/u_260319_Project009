@@ -49,6 +49,7 @@ void AProjectPlayerController::GetLifetimeReplicatedProps(TArray<class FLifetime
 
 	DOREPLIFETIME(ThisClass, NotifyTxt);
 	DOREPLIFETIME(ThisClass, NotifyTxtMore);
+	DOREPLIFETIME(ThisClass, NotifyTime);
 }
 
 void AProjectPlayerController::SetChatMessage(const FString& ChatString)

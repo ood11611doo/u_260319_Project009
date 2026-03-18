@@ -32,6 +32,8 @@ public:
 	FText NotifyTxt;
 	UPROPERTY(Replicated, BlueprintReadOnly)
 	FText NotifyTxtMore;
+	UPROPERTY(Replicated, BlueprintReadOnly)
+	FText NotifyTime;
 	
 protected:
 	UPROPERTY(EditDefaultsOnly)
