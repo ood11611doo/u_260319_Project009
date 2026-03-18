@@ -1,5 +1,3 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
 #pragma once
 
 #include "CoreMinimal.h"
@@ -16,35 +14,43 @@ class U_260319_PROJECT009_API AProjectPlayerController : public APlayerControlle
 	
 public:
 	AProjectPlayerController();
+
+	// --- Variables ---
+
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Notifications")
+	FText NotifyTxt;
+
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Notifications")
+	FText NotifyTxtMore;
+
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Notifications")
+	FText NotifyTime;
+
+	// --- Functions ---
+
 	virtual void BeginPlay() override;
 	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
 	
 	void SetChatMessage(const FString& ChatString);
-	void PrintChatMessage(const FString& ChatString) const;
 	
+	UFUNCTION(Server, Reliable)
+	void ServerRPCPrintChatMessage(const FString& ChatString);
+
 	UFUNCTION(Client, Reliable)
-    void ClientRPCPrintChatMessage(const FString& ChatString, FColor ChatColor = FColor::White);
+	void ClientRPCPrintChatMessage(const FString& ChatString, FColor ChatColor = FColor::White);
     
-    UFUNCTION(Server, Reliable)
-    void ServerRPCPrintChatMessage(const FString& ChatString);
-	
-	UPROPERTY(Replicated, BlueprintReadOnly)
-	FText NotifyTxt;
-	UPROPERTY(Replicated, BlueprintReadOnly)
-	FText NotifyTxtMore;
-	UPROPERTY(Replicated, BlueprintReadOnly)
-	FText NotifyTime;
-	
 protected:
-	UPROPERTY(EditDefaultsOnly)
-	TSubclassOf<UChatWidget> ChatWidget;
-	UPROPERTY(EditDefaultsOnly)
-	TSubclassOf<UUserWidget> NotifyWidget;
+	// --- UI ---
+
+	UPROPERTY(EditDefaultsOnly, Category = "UI")
+	TSubclassOf<UChatWidget> ChatWidgetClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "UI")
+	TSubclassOf<UUserWidget> NotifyWidgetClass;
 
 	UPROPERTY()
 	TObjectPtr<UChatWidget> ChatWidgetInstance;
+
 	UPROPERTY()
 	TObjectPtr<UUserWidget> NotifyWidgetInstance;
-	
-	FString ChatStr;
 };

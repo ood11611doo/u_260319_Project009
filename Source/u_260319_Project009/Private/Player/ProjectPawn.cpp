@@ -1,6 +1,3 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-
 #include "Player/ProjectPawn.h"
 #include "u_260319_Project009.h"
 

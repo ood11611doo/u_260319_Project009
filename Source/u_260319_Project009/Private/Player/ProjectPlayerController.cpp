@@ -1,13 +1,9 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-
 #include "Player/ProjectPlayerController.h"
 #include "Player/ProjectPlayerState.h"
-#include "u_260319_Project009.h"
-#include "UI/ChatWidget.h"
+#include "ProjectGameState.h"
 #include "ProjectGameMode.h"
-#include  "ProjectGameState.h"
-#include "Kismet/GameplayStatics.h"
+#include "UI/ChatWidget.h"
+#include "u_260319_Project009.h"
 #include "Net/UnrealNetwork.h"
 
 AProjectPlayerController::AProjectPlayerController()
@@ -21,25 +17,18 @@ void AProjectPlayerController::BeginPlay()
 
 	if (!IsLocalController()) return;
 	
-	FInputModeUIOnly InputModeUIOnly;
-	SetInputMode(InputModeUIOnly);
+	SetInputMode(FInputModeUIOnly());
 	
-	if (ChatWidget)
+	if (ChatWidgetClass)
 	{
-		ChatWidgetInstance = CreateWidget<UChatWidget>(this, ChatWidget);
-		if (ChatWidgetInstance)
-		{
-			ChatWidgetInstance->AddToViewport();
-		}
+		ChatWidgetInstance = CreateWidget<UChatWidget>(this, ChatWidgetClass);
+		if (ChatWidgetInstance) ChatWidgetInstance->AddToViewport();
 	}
 	
-	if (IsValid(NotifyWidget) == true)
+	if (NotifyWidgetClass)
 	{
-		NotifyWidgetInstance = CreateWidget<UUserWidget>(this, NotifyWidget);
-		if (IsValid(NotifyWidgetInstance) == true)
-		{
-			NotifyWidgetInstance->AddToViewport();
-		}
+		NotifyWidgetInstance = CreateWidget<UUserWidget>(this, NotifyWidgetClass);
+		if (NotifyWidgetInstance) NotifyWidgetInstance->AddToViewport();
 	}
 }
 
@@ -57,41 +46,25 @@ void AProjectPlayerController::SetChatMessage(const FString& ChatString)
 	if (!IsLocalController()) return;
 
 	AProjectPlayerState* PS = GetPlayerState<AProjectPlayerState>();
-	AProjectGameState* PGS = GetWorld()->GetGameState<AProjectGameState>();
+	AProjectGameState* PGS = GetWorld() ? GetWorld()->GetGameState<AProjectGameState>() : nullptr;
+	
 	if (!PS || !PGS) return;
 
-	FString TryDisplay = PS->GetPlayerTry(); 
-	FString FormattedMsg = FString::Printf(TEXT("%s%s: %s"), *PS->PLName, *TryDisplay, *ChatString);
+	FString FormattedMsg = FString::Printf(TEXT("%s%s: %s"), *PS->PLName, *PS->GetPlayerTry(), *ChatString);
 
 	if (PS->CurrentStatus == EPlayerStatus::YourTurn)
 	{
-		if (PGS->IsCorrect(ChatString) == ECheckType::Normal)
-		{
-			ServerRPCPrintChatMessage(FormattedMsg);
-		}
-		else
+		if (PGS->IsCorrect(ChatString) != ECheckType::Normal)
 		{
 			FunctionLib::MyPrintString(this, TEXT("Invalid Guess Format! Sent as chat."), 5.f, FColor::Red);
-			ServerRPCPrintChatMessage(FormattedMsg);
 		}
 	}
-	else if (PS->CurrentStatus == EPlayerStatus::Waiting)
+	else if (PS->CurrentStatus == EPlayerStatus::Waiting && PGS->IsCorrect(ChatString) == ECheckType::Normal)
 	{
-		if (PGS->IsCorrect(ChatString) == ECheckType::Normal)
-		{
-			FunctionLib::MyPrintString(this, TEXT("Not your turn! Sent as chat."), 5.f, FColor::Red);
-		}
-		ServerRPCPrintChatMessage(FormattedMsg);
+		FunctionLib::MyPrintString(this, TEXT("Not your turn! Sent as chat."), 5.f, FColor::Red);
 	}
-	else
-	{
-		ServerRPCPrintChatMessage(FormattedMsg);
-	}
-}
 
-void AProjectPlayerController::PrintChatMessage(const FString& ChatString) const
-{
-	FunctionLib::MyPrintString(this, ChatString, 10.f);
+	ServerRPCPrintChatMessage(FormattedMsg);
 }
 
 void AProjectPlayerController::ClientRPCPrintChatMessage_Implementation(const FString& ChatString, FColor ChatColor)
@@ -101,15 +74,8 @@ void AProjectPlayerController::ClientRPCPrintChatMessage_Implementation(const FS
 
 void AProjectPlayerController::ServerRPCPrintChatMessage_Implementation(const FString& ChatString)
 {
-	AGameModeBase* GM = UGameplayStatics::GetGameMode(this);
-	if (IsValid(GM) == true)
+	if (AProjectGameMode* GM = GetWorld() ? GetWorld()->GetAuthGameMode<AProjectGameMode>() : nullptr)
 	{
-		AProjectGameMode* PGM = Cast<AProjectGameMode>(GM);
-		if (IsValid(PGM) == true)
-		{
-			PGM->ChatMessageStr(this, ChatString);
-		}
+		GM->ChatMessageStr(this, ChatString);
 	}
 }
-
-

@@ -1,23 +1,12 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-
 #include "ProjectGameMode.h"
 #include "ProjectGameState.h"
 #include "Player/ProjectPlayerController.h"
 #include "Player/ProjectPlayerState.h"
+#include "TimerManager.h"
 
 void AProjectGameMode::BeginPlay()
 {
 	Super::BeginPlay();
-	
-	AProjectGameState* PGS = GetGameState<AProjectGameState>();
-	if (IsValid(PGS))
-	{
-		AnswerGet = PGS->AnswerLength;
-		MaxTryGet = PGS->MaxTryCount;
-		TurnTimeGet = PGS->TurnTime;
-	}
-	
 	AnswerStr = GenerateAnswer();
 }
 
@@ -25,41 +14,41 @@ void AProjectGameMode::OnPostLogin(AController* NewPlayer)
 {
 	Super::OnPostLogin(NewPlayer);
     
-	AProjectPlayerController* PLCont = Cast<AProjectPlayerController>(NewPlayer);
-	if (IsValid(PLCont))
+	if (AProjectPlayerController* PLCont = Cast<AProjectPlayerController>(NewPlayer))
 	{
 		AllPlayers.Add(PLCont);
-		AProjectPlayerState* PPS = PLCont->GetPlayerState<AProjectPlayerState>();
-		if (IsValid(PPS))
+
+		if (AProjectPlayerState* PPS = PLCont->GetPlayerState<AProjectPlayerState>())
 		{
 			PPS->PLName = FString::Printf(TEXT("Player %d"), AllPlayers.Num());
-			PPS->MaxCount = MaxTryGet;
+			if (AProjectGameState* PGS = GetGameState<AProjectGameState>())
+			{
+				PPS->MaxCount = PGS->MaxTryCount;
+			}
 		}
-
 		UpdateAllPlayerStatuses();
 	}
 }
 
 FString AProjectGameMode::GenerateAnswer()
 {
+	AProjectGameState* PGS = GetGameState<AProjectGameState>();
+	int32 Length = PGS ? PGS->AnswerLength : 3;
+
 	TArray<int32> Nums;
-	for (int32 i = 1; i <= 9; ++i)
-	{
-		Nums.Add(i);
-	}
+	for (int32 i = 1; i <= 9; ++i) Nums.Add(i);
 
 	FMath::RandInit(FDateTime::Now().GetTicks());
-	Nums = Nums.FilterByPredicate([](int32 Num) { return Num > 0; });
 	
 	FString Returns;
-	for (int32 i = 0; i < AnswerGet; ++i)
+	for (int32 i = 0; i < Length; ++i)
 	{
 		int32 Index = FMath::RandRange(0, Nums.Num() - 1);
 		Returns.Append(FString::FromInt(Nums[Index]));
 		Nums.RemoveAt(Index);
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("%s"), *Returns);
+	UE_LOG(LogTemp, Warning, TEXT("Answer: %s"), *Returns);
 	return Returns;
 }
 
@@ -67,46 +56,31 @@ FString AProjectGameMode::CorResult(const FString& RealAnswer, const FString& In
 {
 	int32 CorCount = 0;
 	int32 NumCount = 0;
+	int32 Length = RealAnswer.Len();
 
-	for (int32 i = 0; i < AnswerGet; ++i)
+	for (int32 i = 0; i < Length; ++i)
 	{
 		if (RealAnswer[i] == InputAnswer[i])
 		{
 			CorCount++;
 		}
-		else 
+		else if (RealAnswer.Contains(FString::Printf(TEXT("%c"), InputAnswer[i])))
 		{
-			FString PlayerGuessChar = FString::Printf(TEXT("%c"), InputAnswer[i]);
-			if (RealAnswer.Contains(PlayerGuessChar))
-			{
-				NumCount++;				
-			}
+			NumCount++;				
 		}
 	}
 
-	if (CorCount == 0 && NumCount == 0)
-	{
-		return TEXT("OUT");
-	}
-
-	return FString::Printf(TEXT("%dS%dB"), CorCount, NumCount);
+	return (CorCount == 0 && NumCount == 0) ? TEXT("OUT") : FString::Printf(TEXT("%dS%dB"), CorCount, NumCount);
 }
 
 void AProjectGameMode::ChatMessageStr(AProjectPlayerController* PLCont, const FString& InputStr)
 {
 	AProjectGameState* PGS = GetGameState<AProjectGameState>();
-	if (!IsValid(PGS)) return;
+	if (!PGS || !PLCont) return;
 	
-	FString ActualContent;
+	// Parse message content
 	int32 ColonIndex;
-	if (InputStr.FindChar(':', ColonIndex))
-	{
-		ActualContent = InputStr.RightChop(ColonIndex + 2).TrimStartAndEnd();
-	}
-	else
-	{
-		ActualContent = InputStr.TrimStartAndEnd();
-	}
+	FString ActualContent = InputStr.FindChar(':', ColonIndex) ? InputStr.RightChop(ColonIndex + 2).TrimStartAndEnd() : InputStr.TrimStartAndEnd();
 	
 	if (bIsWaitingForRestart)
 	{
@@ -117,39 +91,28 @@ void AProjectGameMode::ChatMessageStr(AProjectPlayerController* PLCont, const FS
 
 			if (ReadyPlayers.Num() >= AllPlayers.Num())
 			{
-				bIsWaitingForRestart = false;
-				ReadyPlayers.Empty();
-				ChangeNotify(TEXT("Game Restarted!"));
 				ResetGame();
 			}
-			return; 
 		}
+		return; 
 	}
 	
 	AProjectPlayerState* CurrentPS = PLCont->GetPlayerState<AProjectPlayerState>();
-	if (!CurrentPS) return;
-
-	if (CurrentPS->CurrentStatus == EPlayerStatus::YourTurn && PGS->IsCorrect(ActualContent) == ECheckType::Normal)
+	if (CurrentPS && CurrentPS->CurrentStatus == EPlayerStatus::YourTurn && PGS->IsCorrect(ActualContent) == ECheckType::Normal)
 	{
 		GetWorldTimerManager().ClearTimer(TurnTimerHandle);
 		
 		FString ResultStr = CorResult(AnswerStr, ActualContent);
 		TryCountInc(PLCont);
         
-		FString SpecialInfo = FString::Printf(TEXT("%s: %s [%s]"), *CurrentPS->PLName, *ActualContent, *ResultStr);
-		ChangeNotifyMore(SpecialInfo);
+		ChangeNotifyMore(FString::Printf(TEXT("%s: %s [%s]"), *CurrentPS->PLName, *ActualContent, *ResultStr));
 
 		FString FinalStr = InputStr + TEXT(" -> ") + ResultStr;
+		for (auto& PC : AllPlayers) PC->ClientRPCPrintChatMessage(FinalStr, FColor::Cyan);
 
-		for (AProjectPlayerController* PC : AllPlayers)
+		if (FCString::Atoi(*ResultStr.Left(1)) == PGS->AnswerLength) 
 		{
-			PC->ClientRPCPrintChatMessage(FinalStr, FColor::Cyan);
-		}
-
-		int32 StrikeCount = FCString::Atoi(*ResultStr.Left(1));
-		if (StrikeCount == AnswerGet) 
-		{
-			ResultGame(PLCont, StrikeCount);
+			ResultGame(PLCont, PGS->AnswerLength);
 		}
 		else 
 		{
@@ -158,36 +121,16 @@ void AProjectGameMode::ChatMessageStr(AProjectPlayerController* PLCont, const FS
 	}
 	else
 	{
-		for (AProjectPlayerController* PC : AllPlayers)
-		{
-			PC->ClientRPCPrintChatMessage(InputStr, FColor::White);
-		}
+		for (auto& PC : AllPlayers) PC->ClientRPCPrintChatMessage(InputStr, FColor::White);
 	}
 }
 
 void AProjectGameMode::TryCountInc(AProjectPlayerController* PLCont)
 {
-	AProjectPlayerState* PLState = PLCont->GetPlayerState<AProjectPlayerState>();
-	if (IsValid(PLState))
+	if (AProjectPlayerState* PLState = PLCont ? PLCont->GetPlayerState<AProjectPlayerState>() : nullptr)
 	{
 		PLState->TryCount++;
 	}
-}
-
-bool AProjectGameMode::CheckTryCount(AProjectPlayerController* PLCont)
-{
-	bool bIsOver = false;
-	
-	AProjectPlayerState* PLState = PLCont->GetPlayerState<AProjectPlayerState>();
-	if (IsValid(PLState))
-	{
-		if (PLState->TryCount >= MaxTryGet)
-		{
-			bIsOver = true;
-		}
-	}
-	
-	return bIsOver;
 }
 
 void AProjectGameMode::ResetGame()
@@ -196,14 +139,12 @@ void AProjectGameMode::ResetGame()
 	bIsWaitingForRestart = false;
 	ReadyPlayers.Empty();
 
-	for (auto& PLConts : AllPlayers)
+	for (auto& PC : AllPlayers)
 	{
-		if (AProjectPlayerState* PPS = PLConts->GetPlayerState<AProjectPlayerState>())
-		{
-			PPS->TryCount = 0;
-		}
+		if (AProjectPlayerState* PPS = PC->GetPlayerState<AProjectPlayerState>()) PPS->TryCount = 0;
 	}
 
+	ChangeNotify(TEXT("Game Restarted!"));
 	ChangeNotifyMore(TEXT(""));
 	UpdateAllPlayerStatuses();
 	StartTurnTimer();
@@ -211,54 +152,22 @@ void AProjectGameMode::ResetGame()
 
 void AProjectGameMode::ResultGame(AProjectPlayerController* PLCont, int StrCount)
 {
-	bool bGameOver = false;
-	FString GameOverMsg;
+	AProjectGameState* PGS = GetGameState<AProjectGameState>();
+	if (!PGS) return;
+	
+	FString GameOverMsg = (PLCont && StrCount == (PGS ? PGS->AnswerLength : 3)) 
+		? FString::Printf(TEXT("%s is Winner!"), *PLCont->GetPlayerState<AProjectPlayerState>()->PLName) 
+		: TEXT("No one won the game (All players DEAD).");
+	PGS->CurrentTurnIndex = 0;
 
-	if (StrCount == AnswerGet && PLCont)
-	{
-		AProjectPlayerState* PS = PLCont->GetPlayerState<AProjectPlayerState>();
-		GameOverMsg = PS ? PS->PLName + TEXT(" is Winner!") : TEXT("Game Over!");
-		bGameOver = true;
-	}
-	else
-	{
-		GameOverMsg = TEXT("No one won the game (All players DEAD).");
-		bGameOver = true;
-	}
+	bIsWaitingForRestart = true;
+	ReadyPlayers.Empty();
+	GetWorldTimerManager().ClearTimer(TurnTimerHandle);
 
-	if (bGameOver)
-	{
-		bIsWaitingForRestart = true;
-		ReadyPlayers.Empty();
-		ChangeNotify(GameOverMsg);
-		ChangeNotifyTime(TEXT(""));
-        
-		UpdateRestartUI(); 
-	}
-}
-
-void AProjectGameMode::ChangeNotify(const FString& InputStr)
-{
-	for (const auto& PLConts : AllPlayers)
-	{
-		PLConts->NotifyTxt = FText::FromString(InputStr);
-	}
-}
-
-void AProjectGameMode::ChangeNotifyMore(const FString& InputStr)
-{
-	for (const auto& PLConts : AllPlayers)
-	{
-		PLConts->NotifyTxtMore = FText::FromString(InputStr);
-	}
-}
-
-void AProjectGameMode::ChangeNotifyTime(const FString& InputStr)
-{
-	for (const auto& PLConts : AllPlayers)
-	{
-		PLConts->NotifyTime = FText::FromString(InputStr);
-	}
+	ChangeNotify(GameOverMsg);
+	ChangeNotifyTime(TEXT(""));
+	UpdateRestartUI();
+	UpdateAllPlayerStatuses();
 }
 
 void AProjectGameMode::UpdateAllPlayerStatuses()
@@ -268,22 +177,15 @@ void AProjectGameMode::UpdateAllPlayerStatuses()
 
 	for (int32 i = 0; i < AllPlayers.Num(); ++i)
 	{
-		AProjectPlayerState* PS = AllPlayers[i]->GetPlayerState<AProjectPlayerState>();
-		if (PS)
+		if (AProjectPlayerState* PS = AllPlayers[i]->GetPlayerState<AProjectPlayerState>())
 		{
-			if (bIsWaitingForRestart)
-			{
-				PS->CurrentStatus = EPlayerStatus::NotReady;
-			}
+			if (bIsWaitingForRestart) PS->CurrentStatus = EPlayerStatus::NotReady;
 			else if (i == PGS->CurrentTurnIndex)
 			{
 				PS->CurrentStatus = EPlayerStatus::YourTurn;
 				ChangeNotify(FString::Printf(TEXT("Current Turn: %s"), *PS->PLName));
 			}
-			else
-			{
-				PS->CurrentStatus = EPlayerStatus::Waiting;
-			}
+			else PS->CurrentStatus = EPlayerStatus::Waiting;
 		}
 	}
 }
@@ -299,7 +201,8 @@ void AProjectGameMode::AdvanceTurn()
 	for (int32 i = 1; i <= AllPlayers.Num(); ++i)
 	{
 		int32 NextIndex = (StartingIndex + i) % AllPlayers.Num();
-		if (!CheckTryCount(AllPlayers[NextIndex]))
+		AProjectPlayerState* PS = AllPlayers[NextIndex]->GetPlayerState<AProjectPlayerState>();
+		if (PS && PS->TryCount < PGS->MaxTryCount)
 		{
 			PGS->CurrentTurnIndex = NextIndex;
 			bFoundValidPlayer = true;
@@ -307,10 +210,7 @@ void AProjectGameMode::AdvanceTurn()
 		}
 	}
 
-	if (!bFoundValidPlayer)
-	{
-		ResultGame(nullptr, -1); 
-	}
+	if (!bFoundValidPlayer) ResultGame(nullptr, -1); 
 	else
 	{
 		UpdateAllPlayerStatuses();
@@ -318,32 +218,16 @@ void AProjectGameMode::AdvanceTurn()
 	}
 }
 
-void AProjectGameMode::UpdateTurnUI()
-{
-	AProjectGameState* PGS = GetGameState<AProjectGameState>();
-	if (PGS && AllPlayers.IsValidIndex(PGS->CurrentTurnIndex))
-	{
-		AProjectPlayerController* CurrentPC = AllPlayers[PGS->CurrentTurnIndex];
-		if (IsValid(CurrentPC))
-		{
-			AProjectPlayerState* PS = CurrentPC->GetPlayerState<AProjectPlayerState>();
-			FString TurnMsg = FString::Printf(TEXT("Current Turn: %s"), PS ? *PS->PLName : TEXT("Unknown"));
-			ChangeNotify(TurnMsg);
-		}
-	}
-}
-
 void AProjectGameMode::UpdateRestartUI()
 {
-	FString Status = FString::Printf(TEXT("Type 'y' to restart! (%d/%d)"), ReadyPlayers.Num(), AllPlayers.Num());
-	ChangeNotifyMore(Status);
+	ChangeNotifyMore(FString::Printf(TEXT("Type 'y' to restart! (%d/%d)"), ReadyPlayers.Num(), AllPlayers.Num()));
 }
 
 void AProjectGameMode::StartTurnTimer()
 {
-	RemainingTurnTime = TurnTimeGet; 
+	AProjectGameState* PGS = GetGameState<AProjectGameState>();
+	RemainingTurnTime = PGS ? PGS->TurnTime : 30; 
 	UpdateTimerUI();
-
 	GetWorldTimerManager().SetTimer(TurnTimerHandle, this, &AProjectGameMode::UpdateTimerUI, 1.0f, true);
 }
 
@@ -356,28 +240,22 @@ void AProjectGameMode::UpdateTimerUI()
 	}
 
 	FString TimeStr = FString::Printf(TEXT("Time Left: %ds"), RemainingTurnTime);
-	for (auto& PC : AllPlayers)
-	{
-		if (IsValid(PC)) PC->NotifyTime = FText::FromString(TimeStr);
-	}
-
+	ChangeNotifyTime(TimeStr);
 	RemainingTurnTime--;
 }
 
 void AProjectGameMode::OnTurnTimeExpired()
 {
 	GetWorldTimerManager().ClearTimer(TurnTimerHandle);
-
 	AProjectGameState* PGS = GetGameState<AProjectGameState>();
 	if (PGS && AllPlayers.IsValidIndex(PGS->CurrentTurnIndex))
 	{
-		AProjectPlayerController* CurrentPC = AllPlayers[PGS->CurrentTurnIndex];
-		if (IsValid(CurrentPC))
-		{
-			TryCountInc(CurrentPC);
-			CurrentPC->ClientRPCPrintChatMessage(TEXT("Turn timed out! Try count increased."), FColor::Red);
-		}
+		TryCountInc(AllPlayers[PGS->CurrentTurnIndex]);
+		AllPlayers[PGS->CurrentTurnIndex]->ClientRPCPrintChatMessage(TEXT("Turn timed out! Try count increased."), FColor::Red);
 	}
-
 	AdvanceTurn();
 }
+
+void AProjectGameMode::ChangeNotify(const FString& InputStr) { for (auto& PC : AllPlayers) PC->NotifyTxt = FText::FromString(InputStr); }
+void AProjectGameMode::ChangeNotifyMore(const FString& InputStr) { for (auto& PC : AllPlayers) PC->NotifyTxtMore = FText::FromString(InputStr); }
+void AProjectGameMode::ChangeNotifyTime(const FString& InputStr) { for (auto& PC : AllPlayers) PC->NotifyTime = FText::FromString(InputStr); }

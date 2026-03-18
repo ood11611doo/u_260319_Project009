@@ -1,10 +1,8 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-
 #include "Player/ProjectPlayerState.h"
 #include "Net/UnrealNetwork.h"
 
-AProjectPlayerState::AProjectPlayerState() : PLName(TEXT("BasePlayer")), TryCount(0), MaxCount(3)
+AProjectPlayerState::AProjectPlayerState() 
+	: PLName(TEXT("BasePlayer")), TryCount(0), MaxCount(3)
 {
 	bReplicates = true;
 }
@@ -13,6 +11,7 @@ void AProjectPlayerState::GetLifetimeReplicatedProps(TArray<class FLifetimePrope
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
+	DOREPLIFETIME(ThisClass, CurrentStatus);
 	DOREPLIFETIME(ThisClass, PLName);
 	DOREPLIFETIME(ThisClass, TryCount);
 	DOREPLIFETIME(ThisClass, MaxCount);
@@ -27,4 +26,3 @@ FString AProjectPlayerState::GetPlayerTry()
     
 	return FString::Printf(TEXT("(%d/%d)"), TryCount, MaxCount);
 }
-
